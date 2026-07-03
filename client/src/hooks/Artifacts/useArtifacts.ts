@@ -36,28 +36,57 @@ export default function useArtifacts() {
   const lastRunMessageIdRef = useRef<string | null>(null);
   const prevConversationIdRef = useRef<string | null>(null);
 
+  /**
+   * Read isSubmitting in the conversation effect without re-firing it on
+   * every submission toggle (same non-subscribing pattern as
+   * currentArtifactIdRef below).
+   */
+  const isSubmittingRef = useRef(isSubmitting);
+  isSubmittingRef.current = isSubmitting;
+
   useEffect(() => {
     const resetState = () => {
       resetArtifacts();
       resetCurrentArtifactId();
-      prevConversationIdRef.current = conversationId;
       lastRunMessageIdRef.current = null;
       lastContentRef.current = null;
       hasEnclosedArtifactRef.current = false;
       hasAutoSwitchedToCodeRef.current = false;
     };
-    if (conversationId !== prevConversationIdRef.current && prevConversationIdRef.current != null) {
+    const prev = prevConversationIdRef.current;
+    if (
+      conversationId !== prev &&
+      prev != null &&
+      // `new`/`PENDING` → concrete id is the same conversation being
+      // assigned its identity mid-stream, not a switch — wiping here
+      // would close the panel that just auto-opened for the streaming
+      // artifact.
+      prev !== Constants.NEW_CONVO &&
+      prev !== Constants.PENDING_CONVO
+    ) {
       resetState();
-    } else if (conversationId === Constants.NEW_CONVO) {
+    } else if (conversationId === Constants.NEW_CONVO && !isSubmittingRef.current) {
+      // Landing on a fresh chat clears leftovers — but when the panel
+      // mounts DURING a submission still on `new` (artifact streamed
+      // before the created event assigns the id), wiping would
+      // immediately re-close it.
       resetState();
     }
     prevConversationIdRef.current = conversationId;
-    /** Resets artifacts when unmounting */
+  }, [conversationId, resetArtifacts, resetCurrentArtifactId]);
+
+  /**
+   * Resets artifacts when unmounting. Deliberately a separate effect: as
+   * part of the conversation effect above, this cleanup also ran on every
+   * `conversationId` change, wiping the store a second time mid-stream.
+   */
+  useEffect(() => {
     return () => {
       logger.log('artifacts_visibility', 'Unmounting artifacts');
-      resetState();
+      resetArtifacts();
+      resetCurrentArtifactId();
     };
-  }, [conversationId, resetArtifacts, resetCurrentArtifactId]);
+  }, [resetArtifacts, resetCurrentArtifactId]);
 
   /**
    * Read currentArtifactId in effects without subscribing as a dependency.

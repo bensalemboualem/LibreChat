@@ -114,6 +114,43 @@ describe('useResetArtifactsOnConversationChange', () => {
     expect(handle.readCurrentId()).toBeNull();
   });
 
+  it('preserves artifacts on the new → concrete-id identity assignment (mid-stream created event)', () => {
+    // A conversation leaving `new` for its real id is the SAME
+    // conversation being assigned its identity, not a switch. Wiping
+    // here closed the panel that had just auto-opened for a streaming
+    // `:::artifact` (auto-open regression).
+    const handle = renderHarness({
+      conversationId: 'new',
+      artifacts: { 'streaming-art': buildArtifact('streaming-art') },
+      currentId: 'streaming-art',
+    });
+    act(() => handle.setConversation('conv-A'));
+    expect(handle.readArtifacts()).toEqual({ 'streaming-art': buildArtifact('streaming-art') });
+    expect(handle.readCurrentId()).toBe('streaming-art');
+  });
+
+  it('preserves artifacts on the PENDING → concrete-id identity assignment', () => {
+    const handle = renderHarness({
+      conversationId: 'PENDING',
+      artifacts: { 'streaming-art': buildArtifact('streaming-art') },
+      currentId: 'streaming-art',
+    });
+    act(() => handle.setConversation('conv-A'));
+    expect(handle.readArtifacts()).toEqual({ 'streaming-art': buildArtifact('streaming-art') });
+    expect(handle.readCurrentId()).toBe('streaming-art');
+  });
+
+  it('still wipes when leaving a concrete conversation for a new chat', () => {
+    const handle = renderHarness({
+      conversationId: 'conv-A',
+      artifacts: { 'art-1': buildArtifact('art-1') },
+      currentId: 'art-1',
+    });
+    act(() => handle.setConversation('new'));
+    expect(handle.readArtifacts()).toBeNull();
+    expect(handle.readCurrentId()).toBeNull();
+  });
+
   it('treats an initial null → defined transition as a first observation, not a switch', () => {
     // Initial conversation can flicker through `null` while a fresh chat
     // is still loading. Treating that null as a "previous" id would

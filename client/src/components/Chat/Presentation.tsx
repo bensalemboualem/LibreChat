@@ -3,6 +3,7 @@ import { useRecoilValue } from 'recoil';
 import { FileSources, LocalStorageKeys } from 'librechat-data-provider';
 import type { ExtendedFile } from '~/common';
 import useResetArtifactsOnConversationChange from '~/hooks/Artifacts/useResetArtifactsOnConversationChange';
+import useAutoOpenArtifactPanel from '~/hooks/Artifacts/useAutoOpenArtifactPanel';
 import DragDropWrapper from '~/components/Chat/Input/Files/DragDropWrapper';
 import { EditorProvider, ArtifactsProvider } from '~/Providers';
 import { useDeleteFilesMutation } from '~/data-provider';
@@ -20,10 +21,12 @@ export default function Presentation({ children }: { children: React.ReactNode }
   // resets `currentArtifactId` to null, so the panel stays closed when
   // a user revisits an old conversation full of artifacts. New artifacts
   // arriving via SSE auto-focus through `ToolArtifactCard`'s mount effect
-  // (gated on `isSubmitting`), restoring the legacy streaming UX.
+  // (tool artifacts) and `useAutoOpenArtifactPanel` (markdown
+  // `:::artifact`), restoring the legacy streaming UX.
   const currentArtifactId = useRecoilValue(store.currentArtifactId);
 
   useResetArtifactsOnConversationChange();
+  useAutoOpenArtifactPanel();
 
   const setFilesToDelete = useSetFilesToDelete();
 
