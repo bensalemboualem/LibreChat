@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import { AUTH_USER_DOC_BY_ID_PREFIX, CacheKeys } from 'librechat-data-provider';
 import type * as t from '~/types';
 import balanceSchema from '~/schema/balance';
 import { createUserMethods } from './user';
@@ -14,6 +15,26 @@ let mongoServer: MongoMemoryServer;
 let User: mongoose.Model<t.IUser>;
 let Balance: mongoose.Model<t.IBalance>;
 let methods: ReturnType<typeof createUserMethods>;
+
+const ORIGINAL_AUTH_USER_CACHE_ENV = {
+  AUTH_USER_CACHE_MODE: process.env.AUTH_USER_CACHE_MODE,
+  AUTH_USER_CACHE_TTL_MS: process.env.AUTH_USER_CACHE_TTL_MS,
+};
+
+function restoreAuthUserCacheEnv() {
+  for (const [key, value] of Object.entries(ORIGINAL_AUTH_USER_CACHE_ENV)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
+function enableAuthUserDocCache() {
+  process.env.AUTH_USER_CACHE_MODE = 'on';
+  process.env.AUTH_USER_CACHE_TTL_MS = '60000';
+}
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
@@ -34,7 +55,12 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  restoreAuthUserCacheEnv();
   await mongoose.connection.dropDatabase();
+});
+
+afterEach(() => {
+  restoreAuthUserCacheEnv();
 });
 
 describe('User schema indexes', () => {
@@ -321,6 +347,55 @@ describe('User Methods - Database Tests', () => {
 
       expect(updated).toBeDefined();
       expect(updated?.expiresAt).toBeUndefined();
+    });
+
+    test('should invalidate cached auth user documents on update', async () => {
+      enableAuthUserDocCache();
+      const user = await User.create({
+        name: 'Cached Auth User',
+        email: 'cached-auth@example.com',
+        provider: 'openid',
+      });
+      const indexKey = `${AUTH_USER_DOC_BY_ID_PREFIX}:${user._id?.toString()}`;
+      const cache = {
+        get: jest.fn().mockResolvedValue(['auth-cache-key-a', 'auth-cache-key-b']),
+        delete: jest.fn().mockResolvedValue(true),
+      };
+      const getCache = jest.fn().mockReturnValue(cache);
+      const methodsWithCache = createUserMethods(mongoose, { getCache });
+
+      await methodsWithCache.updateUser(user._id?.toString() ?? '', {
+        name: 'Updated Cached Auth User',
+      });
+
+      expect(getCache).toHaveBeenCalledWith(CacheKeys.AUTH_USER_DOC);
+      expect(cache.get).toHaveBeenCalledWith(indexKey);
+      expect(cache.delete).toHaveBeenCalledWith('auth-cache-key-a');
+      expect(cache.delete).toHaveBeenCalledWith('auth-cache-key-b');
+      expect(cache.delete).toHaveBeenCalledWith(indexKey);
+    });
+
+    test('should invalidate cached auth user documents on delete', async () => {
+      enableAuthUserDocCache();
+      const user = await User.create({
+        name: 'Deleted Cached Auth User',
+        email: 'deleted-cached-auth@example.com',
+        provider: 'openid',
+      });
+      const indexKey = `${AUTH_USER_DOC_BY_ID_PREFIX}:${user._id?.toString()}`;
+      const cache = {
+        get: jest.fn().mockResolvedValue(['auth-cache-key-a']),
+        delete: jest.fn().mockResolvedValue(true),
+      };
+      const getCache = jest.fn().mockReturnValue(cache);
+      const methodsWithCache = createUserMethods(mongoose, { getCache });
+
+      await methodsWithCache.deleteUserById(user._id?.toString() ?? '');
+
+      expect(getCache).toHaveBeenCalledWith(CacheKeys.AUTH_USER_DOC);
+      expect(cache.get).toHaveBeenCalledWith(indexKey);
+      expect(cache.delete).toHaveBeenCalledWith('auth-cache-key-a');
+      expect(cache.delete).toHaveBeenCalledWith(indexKey);
     });
 
     test('should return null for non-existent user', async () => {
