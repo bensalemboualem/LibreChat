@@ -3,8 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
 import { Spinner, useToastContext } from '@librechat/client';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Constants, EModelEndpoint } from 'librechat-data-provider';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
+import { Constants, EModelEndpoint, QueryKeys, dataService } from 'librechat-data-provider';
 import type { TPreset } from 'librechat-data-provider';
 import {
   mergeQuerySettingsWithSpec,
@@ -122,6 +122,27 @@ export default function ChatRoute() {
     enabled:
       isAuthenticated && conversationId !== Constants.NEW_CONVO && !hasSetConversation.current,
   });
+
+  useEffect(() => {
+    if (
+      !isAuthenticated ||
+      !conversationId ||
+      conversationId === Constants.NEW_CONVO ||
+      conversationId === Constants.SEARCH
+    ) {
+      return;
+    }
+
+    const messagesQueryKey = [QueryKeys.messages, conversationId];
+    if (queryClient.getQueryData(messagesQueryKey) !== undefined) {
+      return;
+    }
+
+    void queryClient.prefetchQuery(messagesQueryKey, () =>
+      dataService.getMessagesByConvoId(conversationId),
+    );
+  }, [conversationId, isAuthenticated, queryClient]);
+
   const endpointsQuery = useGetEndpointsQuery({ enabled: isAuthenticated });
   const assistantListMap = useAssistantListMap();
 
